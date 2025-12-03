@@ -22,7 +22,8 @@ export default function Home() {
     });
 
     const data = await res.json();
-    const agentMsg = { role: "agent", content: data.answer || "Sin respuesta" };
+    console.log("Mostramos lo que llega en data", data);
+    const agentMsg = { role: "agent", content: data.answer || "Hubo un problema al intentar dar respuesta, intentalo nuevamente..." };
 
     setMessages((m) => [...m, agentMsg]);
     setLoading(false);

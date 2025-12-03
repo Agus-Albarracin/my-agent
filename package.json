@@ -16,7 +16,8 @@
     "db:status": "prisma migrate status",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "node prisma/seed.js",
-    "db:ping": "node prisma/ping.js"
+    "db:ping": "node prisma/ping.js",
+    "pret": "prettier --write ."
   },
   "dependencies": {
     "@prisma/client": "^6.17.1",

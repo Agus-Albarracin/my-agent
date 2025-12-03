@@ -2,73 +2,85 @@
 import { prisma } from "@/prisma/prisma-client";
 import { cookies } from "next/headers";
 
-// Normaliza claves como: usuario.color_favorito / hermano.auto_color
-const normalizeKey = (key: string) => key.toLowerCase().trim();
+/**
+ * Normaliza claves de memoria.
+ * Convierte a formato determinístico: "papa_auto_marca"
+ */
+export function normalizeKey(key: string): string {
+  return key
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
 
 /**
- * Guarda memoria en la tabla Message como tipo "assistant"
+ * Obtiene el userId actual desde la cookie de sesión
  */
-export async function saveMemory(key: string, value: string) {
+async function getCurrentUserId(): Promise<string | null> {
   const cookieStore = await cookies();
   const sessionId = cookieStore.get("sessionId")?.value;
 
-  if (!sessionId) return { success: false, message: "No hay sesión activa." };
+  if (!sessionId) return null;
 
   const session = await prisma.session.findUnique({
     where: { sessionToken: sessionId },
   });
 
-  if (!session) return { success: false, message: "Sesión inválida." };
+  return session?.userId ?? null;
+}
+
+/**
+ * Guarda o actualiza un dato de memoria del usuario.
+ *
+ * Reemplaza completamente el viejo sistema basado en `Message`.
+ */
+export async function saveMemory(key: string, value: string) {
+  const userId = await getCurrentUserId();
+  if (!userId) return { success: false, message: "No hay sesión activa." };
 
   const finalKey = normalizeKey(key);
 
-  // Buscar si ya existe ese dato
-  const existing = await prisma.message.findFirst({
-    where: { userId: session.userId, key: finalKey },
+  await prisma.memory.upsert({
+    where: { userId_key: { userId, key: finalKey } },
+    update: { value },
+    create: { userId, key: finalKey, value },
   });
-
-  if (existing) {
-    await prisma.message.update({
-      where: { id: existing.id },
-      data: { value },
-    });
-  } else {
-    await prisma.message.create({
-      data: {
-        userId: session.userId,
-        role: "memory",
-        key: finalKey,
-        value,
-        content: "",
-      },
-    });
-  }
 
   return { success: true, key: finalKey, value };
 }
 
 /**
- * Recupera memoria desde la tabla Message
+ * Recupera memoria por clave.
+ *
+ * Devuelve:
+ *  - null si no existe
+ *  - string si existe
  */
 export async function getMemory(key: string) {
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("sessionId")?.value;
-
-  if (!sessionId) return { found: false, message: "No hay sesión activa." };
-
-  const session = await prisma.session.findUnique({
-    where: { sessionToken: sessionId },
-  });
-
-  if (!session) return { found: false, message: "Sesión inválida." };
+  const userId = await getCurrentUserId();
+  if (!userId) return null;
 
   const finalKey = normalizeKey(key);
 
-  const data = await prisma.message.findFirst({
-    where: { userId: session.userId, key: finalKey },
+  const row = await prisma.memory.findUnique({
+    where: { userId_key: { userId, key: finalKey } },
   });
 
-  if (!data) return { found: false, message: "Dato no encontrado." };
+  return row?.value ?? null;
+}
 
-  return { found: true, key: finalKey, value: data.value };
+/**
+ * Devuelve TODAS las memorias del usuario actual.
+ * Útil para depurar, pero normalmente no se usa en producción.
+ */
+export async function getAllMemories() {
+  const userId = await getCurrentUserId();
+  if (!userId) return [];
+
+  return prisma.memory.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+  });
 }
