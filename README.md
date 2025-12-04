@@ -120,11 +120,16 @@ npm install
 
 ### 3. Configurar variables de entorno
 
-Crea un archivo `.env.local` en la raíz:
+Crea un archivo `.env y .env.local` en la raíz:
 
 ```env
 DATABASE_URL="postgresql://user:password@host:5432/database"
+```
+
+```env.local
+DATABASE_URL="postgresql://user:password@host:5432/database"
 OPENAI_API_KEY="sk-..."
+OPENWEATHER_KEY="c27b9..."
 ```
 
 ### 4. Preparar la base de datos
@@ -152,6 +157,8 @@ La app queda disponible en [http://localhost:3000](http://localhost:3000).
 |----------|-------------|-----------|
 | `DATABASE_URL` | Cadena de conexión a PostgreSQL | ✅ |
 | `OPENAI_API_KEY` | API Key de OpenAI para chat y vector stores | ✅ |
+| `OPENWEATHER_KEY` | API Key de Open Weather para recuperar el clima de los países | ✅ |
+
 
 > Las cookies de sesión se gestionan automáticamente desde el endpoint `/api/agent` tras login o registro.
 
@@ -257,10 +264,13 @@ npm run db:reset    # Reinicio completo en local
 
 ## 📚 RAG System
 
-1. El usuario sube un archivo al endpoint `/api/documents` (requiere sesión activa).
-2. Se envía el archivo a un **Vector Store** dedicado del usuario y se genera un resumen inicial con `ragQuery`.
-3. Durante el chat, las herramientas `searchDocuments` y `summarizeLastDocument` consultan el vector store vía OpenAI.
-4. Si el usuario no tiene documentos, el agente responde con mensajes de ayuda para subirlos.
+1. El usuario sube un archivo al endpoint /api/documents (requiere sesión activa).
+El backend valida la sesión, almacena el archivo temporalmente y lo sube tanto a OpenAI como a la Vector Store del usuario.
+2. Cada usuario tiene una Vector Store personal.
+Si no existe, se crea automáticamente mediante getOrCreateVectorStoreForUser() y se asocia en la base de datos.
+3. Durante el chat, el agente puede usar RAG a través de tres herramientas en el archivo de servicios para RAG.
+4. Si el usuario no tiene documentos, las funciones RAG devuelven mensajes claros como
+"Todavía no subiste documentos para usar RAG", permitiendo que el agente guíe al usuario para subir archivos.
 
 ---
 

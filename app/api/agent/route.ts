@@ -109,8 +109,6 @@ export async function POST(req: Request) {
       { role: "system", content: dynamicContext },
     ];
 
-    console.log("message", messages);
-
     if (uploadedFilesSystemMessage) {
       messages.push(uploadedFilesSystemMessage);
     }

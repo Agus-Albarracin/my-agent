@@ -1,31 +1,34 @@
 import fs from "fs";
 import OpenAI from "openai";
 import { prisma } from "@/prisma/prisma-client";
+import { analyzeFilesService } from "@/app/ai/utils/openai-utils";
 
 let openai: OpenAI | null = null;
 
-/**
- * ============================================================
+/* ============================================================
  * 🔌 getClient()
- * ============================================================
- */
+ * Obtiene o inicializa el cliente de OpenAI (singleton).
+ * ============================================================ */
 export function getClient() {
   if (!openai) {
     const key = process.env.OPENAI_API_KEY;
     if (!key) throw new Error("OPENAI_API_KEY missing");
+
     openai = new OpenAI({ apiKey: key });
   }
+
   return openai;
 }
 
-/**
- * ============================================================
+/* ============================================================
  * 📦 getOrCreateVectorStoreForUser()
- * ============================================================
- */
+ * Devuelve el ID de la Vector Store del usuario.
+ * Si no tiene una, crea una nueva y la asocia en la BD.
+ * ============================================================ */
 export async function getOrCreateVectorStoreForUser(userId: string) {
   const client = getClient();
 
+  // Verificar si el usuario ya tiene una vector store
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { vectorStoreId: true },
@@ -35,48 +38,51 @@ export async function getOrCreateVectorStoreForUser(userId: string) {
     return user.vectorStoreId;
   }
 
+  // Crear nueva vector store para el usuario
   const store = await client.vectorStores.create({
     name: `user-${userId}-store`,
   });
 
+  // Asociarla en BD
   await prisma.user.update({
     where: { id: userId },
     data: { vectorStoreId: store.id },
-    select: { id: true },
   });
 
   return store.id;
 }
 
-/**
- * ============================================================
+/* ============================================================
  * 📤 uploadFileToVectorStore()
- * ============================================================
- */
+ * Sube un archivo a la Vector Store del usuario.
+ * NO espera a que el procesamiento finalice (es async en OpenAI).
+ * ============================================================ */
 export async function uploadFileToVectorStore(userId: string, filePath: string) {
   const client = getClient();
   const vectorStoreId = await getOrCreateVectorStoreForUser(userId);
 
-  // 📌 Subimos el archivo PERO NO esperamos procesamiento
-  const batch = await client.vectorStores.fileBatches.uploadAndPoll(vectorStoreId, {
-    files: [fs.createReadStream(filePath)],
-  });
+  // Subida del archivo a la vector store
+  const batch = await client.vectorStores.fileBatches.uploadAndPoll(
+    vectorStoreId,
+    { files: [fs.createReadStream(filePath)] }
+  );
 
-  // ⏱️ Esto devuelve en ~150ms
   return {
     vectorStoreId,
     fileBatchId: batch.id,
-    status: "processing", // <- útil para logging
+    status: "processing", // útil para monitoreo o logs
   };
 }
-/**
- * ============================================================
+
+/* ============================================================
  * 🔍 ragQuery()
- * ============================================================
- */
+ * Ejecuta una búsqueda RAG usando la vector store del usuario.
+ * Devuelve texto generado por el modelo.
+ * ============================================================ */
 export async function ragQuery(userId: string, query: string) {
   const client = getClient();
 
+  // Obtener vector store del usuario
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { vectorStoreId: true },
@@ -86,6 +92,7 @@ export async function ragQuery(userId: string, query: string) {
     return "Todavía no subiste documentos para usar RAG.";
   }
 
+  // Query con file_search + vector store
   const response = await client.responses.create({
     model: "gpt-4.1",
     input: query,
@@ -100,11 +107,11 @@ export async function ragQuery(userId: string, query: string) {
   return response.output_text;
 }
 
-/**
- * ============================================================
+/* ============================================================
  * 🕵️ searchDocuments()
- * ============================================================
- */
+ * Realiza una búsqueda semántica dentro de la Vector Store.
+ * Devuelve los resultados con score, contenido y metadata.
+ * ============================================================ */
 export async function searchDocuments(userId: string, query: string, topK = 5) {
   const client = getClient();
 
@@ -131,28 +138,26 @@ export async function searchDocuments(userId: string, query: string, topK = 5) {
   }));
 }
 
-/**
- * ============================================================
+/* ============================================================
  * 📝 summarizeLastDocument()
- * ============================================================
- */
-export async function summarizeLastDocument(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { vectorStoreId: true },
+ * Resume o analiza el último documento subido por el usuario
+ * usando analyzeFilesService().
+ * ============================================================ */
+export async function summarizeLastDocument(userId: string, query: string) {
+  // Buscar el documento más reciente
+  const lastDoc = await prisma.document.findFirst({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    select: { openaiFileId: true },
   });
 
-  if (!user?.vectorStoreId) {
-    return "Todavía no subiste documentos.";
+  if (!lastDoc) {
+    return "Todavía no subiste archivos.";
   }
 
-  const lastDoc = await prisma.document.findFirst({
-    where: { vectorStoreId: user.vectorStoreId },
-    orderBy: { createdAt: "desc" },
-    select: { title: true },
-  });
-
-  if (!lastDoc) return "No encontré documentos.";
-
-  return ragQuery(userId, `Resumí el documento "${lastDoc.title}"`);
+  // Analizar usando la API de archivos de OpenAI
+  return analyzeFilesService(
+    [{ openaiFileId: lastDoc.openaiFileId }],
+    query
+  );
 }
