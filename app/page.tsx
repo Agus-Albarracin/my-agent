@@ -1,31 +1,140 @@
 "use client";
+
 import { useState, useEffect, useRef } from "react";
 import ChatBubble from "@/app/src/components/ChatBubble";
 import ChatInput from "@/app/src/components/ChatInput";
+import ProcessingIndicator from "./src/components/ProcessingIndicator";
+
+type Message = {
+  role: "user" | "agent";
+  content: string;
+  files?: {
+    fileName: string;
+    fileType?: string;
+    fileSize?: string;
+  }[];
+};
 
 export default function Home() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<Message[]>([
     { role: "agent", content: "Hola 👋 ¿Cómo estás hoy?" },
   ]);
+
+  const [processingSlow, setProcessingSlow] = useState(false);
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  const sendMessage = async (text: string) => {
-    const userMsg = { role: "user", content: text };
-    setMessages((m) => [...m, userMsg]);
+  // ======================================================
+  // ⬆️ Enviar mensaje
+  // ======================================================
+  const sendMessage = async (text: string, files: File[]) => {
     setLoading(true);
+    setProcessingSlow(false);
 
-    const res = await fetch("/api/agent", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: text }),
-    });
+    // Si tarda más de 3s, mostrar texto adicional
+    const slowTimer = setTimeout(() => {
+      setProcessingSlow(true);
+    }, 4000);
 
-    const data = await res.json();
-    const agentMsg = { role: "agent", content: data.answer || "Sin respuesta" };
+    // ============================
+    // 1) renderizar mensaje del usuario
+    // ============================
+    if (text.trim() && files.length === 0) {
+      setMessages((m) => [...m, { role: "user", content: text }]);
+    } else if (files.length > 0) {
+      setMessages((m) => [
+        ...m,
+        {
+          role: "user",
+          content: text || "📎 Envié archivos",
+          files: files.map((f) => ({
+            fileName: f.name,
+            fileType: f.type,
+            fileSize: `${(f.size / 1024 / 1024).toFixed(2)} MB`,
+          })),
+        },
+      ]);
+    }
 
-    setMessages((m) => [...m, agentMsg]);
-    setLoading(false);
+    // ============================
+    // 2) Subida de archivos
+    // ============================
+    const uploadedFiles: any[] = [];
+    let uploadedFileCount = 0;
+
+    if (files?.length) {
+      for (const f of files) {
+        const form = new FormData();
+        form.append("file", f);
+        form.append("title", f.name);
+        form.append("metadata", JSON.stringify({ source: "chat-client" }));
+
+        const res = await fetch("/api/documents", { method: "POST", body: form });
+        const data = await res.json();
+
+        uploadedFiles.push({
+          documentId: data.documentId,
+          openaiFileId: data.openaiFileId,
+          fileName: f.name,
+        });
+
+        uploadedFileCount++;
+      }
+    }
+
+    // Helper para limpiar timers
+    const stopWaiting = () => {
+      clearTimeout(slowTimer);
+      setProcessingSlow(false);
+      setLoading(false);
+    };
+
+    // ============================
+    // 3) Lógica de orquestación
+    // ============================
+
+    // Solo archivos
+    if (uploadedFileCount > 0 && !text.trim()) {
+      stopWaiting();
+      setMessages((m) => [
+        ...m,
+        {
+          role: "agent",
+          content: `📄 Se guardaron ${uploadedFileCount} archivo(s) correctamente.`,
+        },
+      ]);
+      return;
+    }
+
+    // Solo texto
+    if (uploadedFileCount === 0 && text.trim()) {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: text }),
+      });
+
+      const data = await res.json();
+      stopWaiting();
+
+      setMessages((m) => [...m, { role: "agent", content: data.answer }]);
+      return;
+    }
+
+    // Texto + archivos
+    if (uploadedFileCount > 0 && text.trim()) {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: text, uploadedFiles }),
+      });
+
+      const data = await res.json();
+      stopWaiting();
+
+      setMessages((m) => [...m, { role: "agent", content: data.answer }]);
+      return;
+    }
   };
 
   const newChat = () => {
@@ -35,7 +144,7 @@ export default function Home() {
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, processingSlow]);
 
   return (
     <main
@@ -44,18 +153,18 @@ export default function Home() {
         backgroundImage: "linear-gradient(to bottom, #A7DBF5 0%, #A7DBF5 90%, #FFB6C1 100%)",
       }}
     >
-      {/* CONTENEDOR SCROLLEABLE (todo el cuerpo de la página) */}
       <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col space-y-4 pb-40">
         {messages.map((msg, i) => (
-          <ChatBubble key={i} role={msg.role} text={msg.content} />
+          <ChatBubble key={i} role={msg.role} text={msg.content} files={msg.files} />
         ))}
 
-        {loading && <ChatBubble role="agent" text="Espera un segundo…" loading />}
+        {loading && <ChatBubble role="agent" text="" loading />}
+
+        {processingSlow && <ProcessingIndicator />}
 
         <div ref={bottomRef} />
       </div>
 
-      {/* INPUT STICKY — NO TAPA MENSAJES */}
       <div className="sticky bottom-6 left-0 right-0 flex justify-center pointer-events-none">
         <div className="w-full max-w-3xl px-4 pointer-events-auto">
           <ChatInput onSend={sendMessage} onNewChat={newChat} disabled={loading} />

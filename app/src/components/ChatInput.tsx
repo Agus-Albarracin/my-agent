@@ -1,86 +1,86 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
-import { Plus, Trash2 } from "lucide-react";
+
+import { useState, useRef } from "react";
+import { Plus, Upload, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 type ChatInputProps = {
-  onSend: (text: string) => void;
+  onSend: (text: string, files: File[]) => void;
   onNewChat: () => void;
   disabled?: boolean;
 };
 
 export default function ChatInput({ onSend, disabled, onNewChat }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const submit = () => {
-    if (!value.trim()) return;
-    onSend(value);
-    setValue("");
+    if (!value.trim() && files.length === 0) return;
 
-    // 👉 Después de enviar, focus nuevamente
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 10);
+    onSend(value, files);
+
+    setValue("");
+    setFiles([]);
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setTimeout(() => inputRef.current?.focus(), 10);
+  };
+
+  const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const list = Array.from(e.target.files);
+    setFiles((prev) => [...prev, ...list]);
+  };
+
+  const removeFile = (name: string) => {
+    setFiles((prev) => prev.filter((f) => f.name !== name));
   };
 
   return (
-    <div
-      className="
-        w-full
-        bg-white/70 backdrop-blur-xl
-        border border-white/60 
-        shadow-2xl 
-        rounded-3xl
-        px-5 py-4
-        flex items-center gap-4
-      "
-    >
-      {/* Botón Nuevo Chat */}
-      <button
-        onClick={onNewChat}
-        className="
-          p-3 rounded-2xl
-          bg-white/80 border 
-          hover:bg-white 
-          transition
-          shadow-sm
-        "
-      >
-        <Plus className="w-5 h-5 text-slate-700" />
-      </button>
+    <div className="w-full flex flex-col gap-2">
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-2">
+          {files.map((file) => (
+            <Badge
+              key={file.name}
+              variant="secondary"
+              className="flex items-center gap-2 bg-white/60 border text-black"
+            >
+              {file.name}
+              <button onClick={() => removeFile(file.name)}>
+                <X className="w-4 h-4 hover:text-red-600" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
 
-      {/* Input */}
-      <input
-        className="
-          flex-1 px-4 py-3 rounded-2xl 
-          bg-white/70 border border-white/90
-          text-black
-          placeholder-slate-500
-          focus:outline-none focus:ring-4 focus:ring-sky-300
-        "
-        placeholder="Escribe un mensaje..."
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && submit()}
-        disabled={disabled}
-      />
+      <div className="bg-white/70 rounded-3xl px-5 py-4 flex items-center gap-4">
+        <button onClick={onNewChat}>
+          <Plus className="w-5 h-5 text-slate-700" />
+        </button>
 
-      {/* Enviar */}
-      <button
-        onClick={submit}
-        className="
-          px-6 py-3 rounded-2xl 
-          bg-gradient-to-r from-sky-500 to-pink-500 
-          text-white font-semibold shadow-lg 
-          disabled:opacity-50
-        "
-      >
-        Enviar
-      </button>
+        <button onClick={() => fileInputRef.current?.click()}>
+          <Upload className="w-5 h-5 text-slate-700" />
+        </button>
+
+        <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFiles} />
+
+        <input
+          className="flex-1 bg-transparent border-none outline-none"
+          placeholder="Escribe un mensaje..."
+          value={value}
+          disabled={disabled}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          ref={inputRef}
+        />
+
+        <button onClick={submit}>Enviar</button>
+      </div>
     </div>
   );
 }

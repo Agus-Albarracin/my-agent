@@ -6,29 +6,52 @@ import { prisma } from "@/prisma/prisma-client";
 import { cookies } from "next/headers";
 import crypto from "crypto";
 
-// Máquina de estados + prompts
+// Máquina de estados + prompts base por estado del usuario
 import { getNextState } from "@/app/ai/state-machine";
-import { getPromptForState } from "@/app/ai/getPromt";
 import { promptAuthenticated } from "@/app/ai/prompts";
 
-function sanitizeMessages(messages: any[]) {
-  return messages
-    .filter(
-      (m) =>
-        m.role !== "memory" && // no enviar memorias
-        m.content !== null &&
-        m.content !== undefined
-    )
-    .map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-}
+// Router semántico (memory / auth / casual)
+import { detectDomainLLM } from "@/app/ai/router";
 
+// Constructor del SYSTEM PROMPT dinámico (state + domain)
+import { buildSystemPrompt } from "@/app/ai/buildPromts";
+
+// Capa 3: Contexto dinámico enriquecido
+import { buildDynamicContext } from "@/app/ai/context/context";
+
+// Sanitización del historial y construcción de archivos
+import { sanitizeMessages, buildUploadedFilesSystemMessage } from "@/app/ai/utils/openai-utils";
+
+/**
+ * ============================================================
+ * 🔥 MAIN ROUTE — Punto central del agente conversacional
+ * ============================================================
+ *
+ * Este endpoint es la **capa de orquestación principal** del sistema.
+ * Implementa una arquitectura estilo **"OpenAI Assistant Architecture"**
+ * con:
+ *
+ * - Manejo de sesión del usuario (login/logout)
+ * - Máquina de estados: Register / Login / Authenticated / Logout
+ * - Router semántico con LLM para determinar el dominio del mensaje
+ * - Construcción dinámica del SYSTEM PROMPT
+ * - Contexto dinámico inteligente (memorias + historial reciente)
+ * - Soporte completo de herramientas (tool_choice:auto)
+ * - Dos llamadas al modelo (razonamiento → herramienta → respuesta final)
+ * - Persistencia total en la base (mensajes, estado del usuario, sesiones)
+ * - Manejo de archivos subidos por el cliente
+ *
+ * Es el corazón del agente: todo pasa por aquí.
+ */
+
+/** Cliente central de OpenAI */
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(req: Request) {
   try {
+    // ------------------------------------------------------------
+    // 0) VALIDACIÓN DE API KEY
+    // ------------------------------------------------------------
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(
         { error: "Falta la variable de entorno OPENAI_API_KEY" },
@@ -36,12 +59,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const { query } = await req.json();
+    // Cuerpo de la request
+    const { query, uploadedFiles = [] } = await req.json();
+    console.log("📥 uploadedFiles:", uploadedFiles);
     console.log("Incoming query:", query);
 
-    // ==============================================================
-    // 🔐 0) Leer sesión desde cookie
-    // ==============================================================
+    // ------------------------------------------------------------
+    // 1) SESIÓN: leemos la cookie "sessionId"
+    // ------------------------------------------------------------
     const cookieStore = await cookies();
     const sessionId = cookieStore.get("sessionId")?.value || null;
 
@@ -61,21 +86,41 @@ export async function POST(req: Request) {
       console.log("🔓 No hay sesión activa");
     }
 
-    // ==============================================================
-    // MÁQUINA DE ESTADOS
-    // ==============================================================
+    // ------------------------------------------------------------
+    // 2) MÁQUINA DE ESTADOS DEL USUARIO
+    // ------------------------------------------------------------
+    /**
+     * Determina en qué estado está el usuario:
+     *
+     * - UNAUTHENTICATED       → sin sesión
+     * - REGISTERING           → creando cuenta
+     * - LOGGING_IN            → autenticándose
+     * - AUTHENTICATED         → sesión normal
+     * - LOGGING_OUT           → cerrando sesión
+     */
     const state = getNextState(user, query);
     console.log("🧠 Estado detectado:", state);
 
-    // ==============================================================
-    // PROMPT SEGÚN ESTADO
-    // ==============================================================
-    const systemPrompt = getPromptForState(state, user);
+    // ------------------------------------------------------------
+    // 3) DETECCIÓN DE DOMINIO DEL MENSAJE
+    // ------------------------------------------------------------
+    /**
+     * detectDomainLLM permite identificar:
+     * - "memory"  → quiere recordar/datos personales
+     * - "auth"    → login / datos sensibles
+     * - "casual"  → conversación normal
+     */
+    const domain = await detectDomainLLM(query);
+    console.log("🧭 Dominio detectado:", domain);
 
-    // ============================================================
-    // 1) Recrear context y enviar historial.
-    // ============================================================
+    // ------------------------------------------------------------
+    // 4) Construcción del SYSTEM PROMPT dinámico
+    // ------------------------------------------------------------
+    const systemPrompt = buildSystemPrompt(state, domain, user);
 
+    // ------------------------------------------------------------
+    // 5) Historial reciente del usuario
+    // ------------------------------------------------------------
     let history = [];
 
     if (user?.id) {
@@ -91,7 +136,7 @@ export async function POST(req: Request) {
       }));
     }
 
-    // Guardar el nuevo mensaje del usuario en la base
+    // Guardar el mensaje en DB
     await prisma.message.create({
       data: {
         role: "user",
@@ -100,6 +145,7 @@ export async function POST(req: Request) {
       },
     });
 
+    // Releer historial completo y sanitizarlo
     const historyFromDB = user
       ? await prisma.message.findMany({
           where: { userId: user.id },
@@ -107,17 +153,31 @@ export async function POST(req: Request) {
         })
       : [];
 
-    // 2) Sanear historial (elimina nulls y role memory)
     const safeHistory = sanitizeMessages(historyFromDB);
 
-    // ============================================================
-    // 1) Primera llamada
-    // ============================================================
+    // ------------------------------------------------------------
+    // 6) Contexto dinámico enriquecido (memorias + análisis)
+    // ------------------------------------------------------------
+    const dynamicContext = await buildDynamicContext(user, query);
 
+    // Mensaje especial para archivos subidos por el usuario
+    const uploadedFilesSystemMessage = buildUploadedFilesSystemMessage(uploadedFiles);
+
+    // ------------------------------------------------------------
+    // 7) PRIMERA LLAMADA AL MODELO
+    // ------------------------------------------------------------
+    /**
+     * Esta llamada ejecuta:
+     * - razonamiento inicial
+     * - decide si invocar herramientas
+     * - planifica respuesta
+     */
     const first = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
+        { role: "system", content: dynamicContext },
+        ...(uploadedFilesSystemMessage ? [uploadedFilesSystemMessage] : []),
         ...safeHistory,
         { role: "user", content: query },
       ],
@@ -127,18 +187,28 @@ export async function POST(req: Request) {
 
     const msg = first.choices[0].message;
 
-    // ============================================================
-    // 2) Si GPT quiere llamar a herramientas
-    // ============================================================
+    // ------------------------------------------------------------
+    // 8) MANEJO DE tool_calls
+    // ------------------------------------------------------------
+    /**
+     * Si el modelo invoca herramientas, ejecutamos sus funciones
+     * y luego hacemos una segunda llamada al modelo pasándole
+     * los resultados.
+     */
     if (msg.tool_calls?.length) {
       let justLoggedInUser = null;
 
       const results = await Promise.all(
         msg.tool_calls.map(async (call: any) => {
           const args = JSON.parse(call.function.arguments || "{}");
-          const result = await runTool(call.function.name, args);
 
-          // Detecta login exitoso
+          // Ejecutar herramienta real
+          const result = await runTool(call.function.name, {
+            ...args,
+            userId: user?.id ?? null,
+          });
+
+          // Si se acaba de loguear → preparar nuevo STATE PROMPT
           if (call.function.name === "authenticateUser" && result.authenticated) {
             justLoggedInUser = {
               id: result.userId,
@@ -147,7 +217,7 @@ export async function POST(req: Request) {
             };
           }
 
-          // Crear sesión (excepto logout)
+          // Crear sesión persistente si corresponde
           if (
             call.function.name !== "logoutUser" &&
             ((call.function.name === "saveUserInfo" && result.userId) ||
@@ -179,11 +249,16 @@ export async function POST(req: Request) {
         })
       );
 
-      // ============================================================
-      // 3) Segunda llamada
-      // ============================================================
-
-      // Si se acaba de loguear → promptAuthenticated
+      // ------------------------------------------------------------
+      // 9) SEGUNDA LLAMADA DEL MODELO
+      // ------------------------------------------------------------
+      /**
+       * El modelo ahora recibe:
+       * - prompt actualizado (si hubo login)
+       * - input original
+       * - tool_call original
+       * - resultados de herramientas
+       */
       const secondSystemPrompt = justLoggedInUser
         ? promptAuthenticated(justLoggedInUser)
         : systemPrompt;
@@ -202,6 +277,15 @@ export async function POST(req: Request) {
         ],
       });
 
+      // Persistir respuesta del assistant
+      await prisma.message.create({
+        data: {
+          role: "assistant",
+          content: final.choices[0].message?.content || "",
+          userId: user?.id ?? null,
+        },
+      });
+
       return NextResponse.json({
         answer: final.choices[0].message?.content,
         trace: {
@@ -211,9 +295,9 @@ export async function POST(req: Request) {
       });
     }
 
-    // ============================================================
-    // 4) Si no hay tool call → respuesta directa
-    // ============================================================
+    // ------------------------------------------------------------
+    // 10) RESPUESTA DIRECTA SIN HERRAMIENTAS
+    // ------------------------------------------------------------
     return NextResponse.json({ answer: msg.content });
   } catch (err: any) {
     console.error("API error:", err);
