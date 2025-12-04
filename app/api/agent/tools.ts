@@ -1,4 +1,3 @@
-// tools/tools.ts
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 
 export const tools: ChatCompletionTool[] = [
@@ -44,7 +43,7 @@ export const tools: ChatCompletionTool[] = [
     },
   },
 
-  // ==== Guardar Datos del Usuario ====
+  // ==== Registro de Usuario ====
   {
     type: "function",
     function: {
@@ -121,6 +120,35 @@ export const tools: ChatCompletionTool[] = [
           key: { type: "string" },
         },
         required: ["key"],
+      },
+    },
+  },
+
+  // ===== Búsqueda de documentos. =====
+  {
+    type: "function",
+    function: {
+      name: "searchDocuments",
+      description: "Busca información relevante dentro de los documentos del usuario mediante RAG.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          topK: { type: "number" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  // ===== Lectura de documentos. =====
+  {
+    type: "function",
+    function: {
+      name: "summarizeLastDocument",
+      description: "Resume el documento más recientemente subido por el usuario usando RAG.",
+      parameters: {
+        type: "object",
+        properties: {},
       },
     },
   },
