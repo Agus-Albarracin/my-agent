@@ -31,13 +31,12 @@ export default function Home() {
     setLoading(true);
     setProcessingSlow(false);
 
-    // Si tarda más de 3s, mostrar texto adicional
     const slowTimer = setTimeout(() => {
       setProcessingSlow(true);
     }, 4000);
 
     // ============================
-    // 1) renderizar mensaje del usuario
+    // 1) Renderizar mensaje del usuario
     // ============================
     if (text.trim() && files.length === 0) {
       setMessages((m) => [...m, { role: "user", content: text }]);
@@ -69,7 +68,11 @@ export default function Home() {
         form.append("title", f.name);
         form.append("metadata", JSON.stringify({ source: "chat-client" }));
 
-        const res = await fetch("/api/documents", { method: "POST", body: form });
+        const res = await fetch("/api/documents", {
+          method: "POST",
+          body: form,
+        });
+
         const data = await res.json();
 
         uploadedFiles.push({
@@ -82,7 +85,6 @@ export default function Home() {
       }
     }
 
-    // Helper para limpiar timers
     const stopWaiting = () => {
       clearTimeout(slowTimer);
       setProcessingSlow(false);
@@ -90,7 +92,7 @@ export default function Home() {
     };
 
     // ============================
-    // 3) Lógica de orquestación
+    // 3) Lógica de orquestación:
     // ============================
 
     // Solo archivos
@@ -106,6 +108,34 @@ export default function Home() {
       return;
     }
 
+    // Helper que crea el streaming reader
+    const streamResponse = async (res: Response) => {
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+
+      // Nueva burbuja del asistente vacía
+      setMessages((m) => [...m, { role: "agent", content: "" }]);
+
+      while (true) {
+        const { value, done } = await reader!.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        full += chunk;
+
+        // Actualiza la última burbuja
+        setMessages((m) => {
+          const updated = [...m];
+          const lastIndex = updated.length - 1;
+          updated[lastIndex] = { ...updated[lastIndex], content: full };
+          return updated;
+        });
+      }
+
+      stopWaiting();
+    };
+
     // Solo texto
     if (uploadedFileCount === 0 && text.trim()) {
       const res = await fetch("/api/agent", {
@@ -114,10 +144,7 @@ export default function Home() {
         body: JSON.stringify({ query: text }),
       });
 
-      const data = await res.json();
-      stopWaiting();
-
-      setMessages((m) => [...m, { role: "agent", content: data.answer }]);
+      await streamResponse(res);
       return;
     }
 
@@ -129,10 +156,7 @@ export default function Home() {
         body: JSON.stringify({ query: text, uploadedFiles }),
       });
 
-      const data = await res.json();
-      stopWaiting();
-
-      setMessages((m) => [...m, { role: "agent", content: data.answer }]);
+      await streamResponse(res);
       return;
     }
   };
@@ -150,7 +174,8 @@ export default function Home() {
     <main
       className="min-h-screen w-full px-4 pt-6 flex flex-col"
       style={{
-        backgroundImage: "linear-gradient(to bottom, #A7DBF5 0%, #A7DBF5 90%, #FFB6C1 100%)",
+        backgroundImage:
+          "linear-gradient(to bottom, #A7DBF5 0%, #A7DBF5 90%, #FFB6C1 100%)",
       }}
     >
       <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col space-y-4 pb-40">

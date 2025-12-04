@@ -53,8 +53,6 @@ export async function uploadOpenAIFileService(filePath: string, filename: string
     purpose: "user_data", // requerido por OpenAI
   });
 
-  console.log("📤 Archivo subido a OpenAI:", file);
-
   return {
     openaiFileId: file.id,
     fileName: filename,
@@ -112,37 +110,6 @@ export async function analyzeFilesService(files: any[], query: string) {
   return {
     summary: response.output_text,
   };
-}
-
-/**
- * sanitizeMessages()
- * -------------------
- * Limpia el historial antes de enviarlo al modelo.
- *
- * Elimina:
- * - Mensajes con rol "memory" (memorias internas que no deben ir al prompt)
- * - Mensajes nulos, vacíos o corruptos
- *
- * Propósito:
- * - Mantener el prompt limpio
- * - Evitar ruido e interferencias
- * - Prevenir tool calls accidentales por mensajes viejos
- *
- * @param messages - Lista cruda de mensajes traídos desde la BD
- * @returns Lista filtrada lista para enviar al modelo
- */
-export function sanitizeMessages(messages: any[]) {
-  return messages
-    .filter(
-      (m) =>
-        m.role !== "memory" && // No enviar memorias al modelo
-        m.content !== null &&
-        m.content !== undefined
-    )
-    .map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
 }
 
 /**

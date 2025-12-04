@@ -26,6 +26,7 @@ async function getCurrentUserId(): Promise<string | null> {
 
   const session = await prisma.session.findUnique({
     where: { sessionToken: sessionId },
+    select: { userId: true },
   });
 
   return session?.userId ?? null;
@@ -46,6 +47,7 @@ export async function saveMemory(key: string, value: string) {
     where: { userId_key: { userId, key: finalKey } },
     update: { value },
     create: { userId, key: finalKey, value },
+    select: { key: true, value: true },
   });
 
   return { success: true, key: finalKey, value };
@@ -66,21 +68,8 @@ export async function getMemory(key: string) {
 
   const row = await prisma.memory.findUnique({
     where: { userId_key: { userId, key: finalKey } },
+    select: { value: true },
   });
 
   return row?.value ?? null;
-}
-
-/**
- * Devuelve TODAS las memorias del usuario actual.
- * Útil para depurar, pero normalmente no se usa en producción.
- */
-export async function getAllMemories() {
-  const userId = await getCurrentUserId();
-  if (!userId) return [];
-
-  return prisma.memory.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-  });
 }
