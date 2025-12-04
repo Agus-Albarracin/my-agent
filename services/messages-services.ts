@@ -1,20 +1,12 @@
 // services/messages.service.ts
 import { prisma } from "@/prisma/prisma-client";
 
-export async function saveMessage(
-  userId: string | null,
-  role: string,
-  content: string,
-  finalKey: string,
-  value: string
-) {
+export async function saveMessage(userId: string | null, role: string, content: string) {
   return prisma.message.create({
     data: {
       userId,
       role,
       content,
-      key: finalKey,
-      value,
     },
   });
 }
