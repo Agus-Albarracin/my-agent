@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 export async function registerUser(name: string, code: string) {
   const existing = await prisma.user.findFirst({
     where: { name: { equals: name, mode: "insensitive" } },
+    select: { id: true, name: true },
   });
 
   if (existing) {
@@ -17,6 +18,7 @@ export async function registerUser(name: string, code: string) {
 
   const user = await prisma.user.create({
     data: { name, code },
+    select: { id: true, name: true },
   });
 
   return {
@@ -32,6 +34,7 @@ export async function authenticateUser(name: string, code: string) {
       name: { equals: name, mode: "insensitive" },
       code,
     },
+    select: { id: true, name: true, code: true },
   });
 
   if (!user) {

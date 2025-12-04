@@ -1,72 +1,41 @@
-import OpenAI from "openai";
 import { prisma } from "@/prisma/prisma-client";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+export async function buildDynamicContext(user: any) {
+ if (!user) return "";
 
-export async function buildDynamicContext(user: any, query: string) {
-  if (!user) return "";
+  // Buscar en paralelo (rápido)
+  const [messages, memories] = await Promise.all([
+    prisma.message.findMany({
+      where: { userId: user.id, role: { not: "memory" } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { role: true, content: true },
+    }),
 
-  // Traemos todo el historial útil
-  const messages = await prisma.message.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: "asc" },
-    take: 50, // ← configurable
-  });
+    prisma.memory.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { key: true, value: true },
+    }),
+  ]);
 
-  // Traemos memorias
-  const memories = await prisma.memory.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: "asc" },
-  });
+  const memoryText =
+    memories.length > 0
+      ? memories.map((m) => `${m.key}: ${m.value}`).join(" | ")
+      : "";
 
-  const memoryText = memories.map((m) => `${m.key}: ${m.value}`).join("\n");
   const historyText = messages
-    .filter((m) => m.role !== "memory")
+    .slice()
+    .reverse()
     .map((m) => `${m.role}: ${m.content}`)
-    .join("\n");
-
-  // Pedimos a GPT que produzca un mini contexto NATURAL
-  const extraction = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: `
-Tu tarea es generar un BREVE contexto en texto plano que ayude al modelo
-a entender la situación actual. NO inventes nada.
-
-Instrucciones:
-- Resume SOLO lo relevante para entender la pregunta actual.
-- Incluye pequeñas referencias a memorias útiles si aportan contexto.
-- NO incluyas datos irrelevantes.
-- NO mezcles temas.
-- NO des recomendaciones.
-- NO respondas al usuario.
-- Producí un texto breve (máximo 3-5 oraciones).
-`,
-      },
-      {
-        role: "assistant",
-        content: `
-MEMORIAS DEL USUARIO:
-${memoryText || "(no hay memorias guardadas)"}
-
-HISTORIAL RECIENTE:
-${historyText || "(no hay historial previo)"}
-`,
-      },
-      {
-        role: "user",
-        content: `Generá contexto para responder: "${query}"`,
-      },
-    ],
-  });
-
-  const context = extraction.choices[0].message?.content || "";
+    .join(" || ");
 
   return `
-=== CONTEXTO DINÁMICO ===
-${context.trim()}
-=========================
+=== CONTEXTO DINÁMICO (SIN LLM) ===
+Usuario: ${user.name}
+Memorias: ${memoryText || "(ninguna)"}
+Historial reciente: ${historyText || "(vacío)"}
+====================================
   `.trim();
 }

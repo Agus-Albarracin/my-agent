@@ -1,62 +1,42 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/prisma/prisma-client";
-import { uploadFileToVectorStore } from "@/services/rag-services";
+import { uploadFileToVectorStore, ragQuery } from "@/services/rag-services";
 import os from "os";
 import path from "path";
-import fs from "fs";
-import { ragQuery } from "@/services/rag-services";
+import fs from "fs/promises";
 import { cookies } from "next/headers";
 
-/**
- * ============================================================
- * 📄 POST /api/documents
- * ============================================================
- * Sube un archivo al servidor, lo procesa con OpenAI Vector Store
- * (RAG), lo guarda en la base de datos y devuelve un resumen del mismo.
- *
- * FLUJO:
- * 1. Verifica que exista una sesión activa.
- * 2. Obtiene el usuario asociado al sessionId.
- * 3. Lee `multipart/form-data` para recibir el archivo.
- * 4. Guarda el archivo temporalmente en el filesystem.
- * 5. Envía el archivo al Vector Store (OpenAI hace embeddings + chunking).
- * 6. Registra el documento en la base de datos.
- * 7. Ejecuta un resumen automático vía RAG.
- * 8. Devuelve el ID del documento, el Vector Store y el resumen generado.
- *
- * RESPUESTAS:
- *  - 200: subida exitosa + resumen RAG.
- *  - 400: archivo faltante o inválido.
- *  - 401: sesión inválida o inexistente.
- *  - 500: error interno.
- */
 export const POST = async (request: Request) => {
   console.log("📄 POST /api/documents - Inicio");
 
   // ============================================================
-  // 🔐 1. Validar sesión usando cookie "sessionId"
+  // 🔐 1. Validar sesión
   // ============================================================
-  const cookieStore = await cookies();
-  const sessionId = cookieStore.get("sessionId")?.value || null;
+  const sessionId = (await cookies()).get("sessionId")?.value ?? null;
 
   if (!sessionId) {
-    return NextResponse.json({ error: "No hay sesión activa, login requerido" }, { status: 401 });
+    return NextResponse.json(
+      { error: "No hay sesión activa" },
+      { status: 401 }
+    );
   }
 
   const session = await prisma.session.findUnique({
     where: { sessionToken: sessionId },
-    include: { user: true },
+    select: { userId: true },
   });
 
-  if (!session?.user) {
-    return NextResponse.json({ error: "Sesión inválida o usuario no encontrado" }, { status: 401 });
+  if (!session?.userId) {
+    return NextResponse.json(
+      { error: "Sesión inválida o usuario no encontrado" },
+      { status: 401 }
+    );
   }
 
-  const userId = session.user.id;
+  const userId = session.userId;
 
   try {
     const contentType = request.headers.get("content-type") || "";
-
     let title = "";
     let metadata: any = {};
     let fileBuffer: Buffer | null = null;
@@ -64,47 +44,54 @@ export const POST = async (request: Request) => {
     let fileMime = "";
 
     // ============================================================
-    // 📦 2. Manejo de multipart/form-data
+    // 📦 2. Procesar multipart/form-data (opt)
     // ============================================================
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
       const file = form.get("file") as File;
 
       if (!file) {
-        return NextResponse.json({ error: "Debe subir un archivo" }, { status: 400 });
+        return NextResponse.json(
+          { error: "Debe subir un archivo" },
+          { status: 400 }
+        );
       }
 
       title = (form.get("title") as string) || file.name;
 
-      // Convertir File → Buffer
-      const buffer = await file.arrayBuffer();
-      fileBuffer = Buffer.from(buffer);
+      const arrayBuffer = await file.arrayBuffer();
+      fileBuffer = Buffer.from(arrayBuffer);
 
       fileName = file.name;
       fileMime = file.type;
     }
 
     if (!fileBuffer) {
-      return NextResponse.json({ error: "No se pudo leer el archivo" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No se pudo leer el archivo" },
+        { status: 400 }
+      );
     }
 
     // ============================================================
-    // 💾 3. Guardado temporal en /tmp (necesario para streaming)
+    // 💾 3. Guardar archivo temporal (NO bloqueante)
     // ============================================================
     const tempPath = path.join(os.tmpdir(), fileName);
-    fs.writeFileSync(tempPath, fileBuffer);
-
-    console.log("📤 Subiendo archivo al Vector Store...");
+    await fs.writeFile(tempPath, fileBuffer);
 
     // ============================================================
-    // 🧠 4. Subir archivo al Vector Store (RAG encoding)
+    // ⚡ 4. Ejecutar Upload + RAG en paralelo
     // ============================================================
-    const vectorStoreId = await uploadFileToVectorStore(userId, tempPath);
-
-    console.log("✨ Archivo procesado en Vector Store:", vectorStoreId);
+    const [vectorStoreId, summary] = await Promise.all([
+      uploadFileToVectorStore(userId, tempPath),
+      ragQuery(
+        userId,
+        `Resumí el nuevo documento "${title}" en 10 puntos clave.`
+      ),
+    ]);
 
     // ============================================================
-    // 🗄 5. Guardar metadatos del documento en la base de datos
+    // 🗄 5. Guardar documento
     // ============================================================
     const doc = await prisma.document.create({
       data: {
@@ -113,31 +100,30 @@ export const POST = async (request: Request) => {
         openaiFileId: fileName,
         size: fileBuffer.length,
         mimeType: fileMime,
-        vectorStoreId,
+        vectorStoreId: "pending",
         metadata,
+      },
+      select: {
+        id: true,
+        vectorStoreId: true,
       },
     });
 
     // ============================================================
-    // 🤖 6. Resumen automático usando RAG
-    // ============================================================
-    const summary = await ragQuery(
-      userId,
-      `Resumí el nuevo documento "${title}" en 10 puntos clave.`
-    );
-
-    // ============================================================
-    // 📤 7. Respuesta final
+    // 📤 6. Respuesta final
     // ============================================================
     return NextResponse.json({
       success: true,
       documentId: doc.id,
-      vectorStoreId,
+      vectorStoreId: doc.vectorStoreId,
       summary,
     });
   } catch (error) {
     console.error("❌ Error en POST /api/documents:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Error interno del servidor" },
+      { status: 500 }
+    );
   }
 };
 
@@ -145,19 +131,21 @@ export const POST = async (request: Request) => {
  * ============================================================
  * 📄 GET /api/documents
  * ============================================================
- * Obtiene el listado de todos los documentos almacenados.
- *
- * - Ordenados por fecha (más recientes primero).
- * - NO requiere autenticación (dependiendo de tu diseño actual).
- *
- * RESPUESTAS:
- *  - 200: lista de documentos.
- *  - 500: error interno.
  */
 export const GET = async () => {
   try {
     const documents = await prisma.document.findMany({
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        size: true,
+        mimeType: true,
+        openaiFileId: true,
+        vectorStoreId: true,
+        metadata: true,
+      },
     });
 
     return NextResponse.json({

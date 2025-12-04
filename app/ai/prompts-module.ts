@@ -2,11 +2,12 @@ export const coreRules = `
 REGLAS GENERALES:
 - No inventes datos.
 - No mezcles temas.
+- Responde solo a la pregunta actual.
 - No recuperes ni menciones información que el usuario NO pidió.
-- Responde ÚNICAMENTE a la pregunta actual.
-- Sé breve y directo. No agregues contexto extra, advertencias, ni explicaciones innecesarias.
-- No hagas suposiciones ni completes con información irrelevante.
-- Nunca uses herramientas repetidas si fallaron.
+- Sé breve y directo, sin contexto innecesario.
+- No completes con suposiciones ni añadas información irrelevante.
+- No vuelvas a usar herramientas que ya fallaron.
+- No generes nombres, códigos ni información privada inventada.
 `;
 
 export const toolRules = `
