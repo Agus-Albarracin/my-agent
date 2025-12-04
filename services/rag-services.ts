@@ -66,7 +66,7 @@ export async function uploadFileToVectorStore(userId: string, filePath: string) 
   return {
     vectorStoreId,
     fileBatchId: batch.id,
-    status: "processing",        // <- útil para logging
+    status: "processing", // <- útil para logging
   };
 }
 /**

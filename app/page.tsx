@@ -174,8 +174,7 @@ export default function Home() {
     <main
       className="min-h-screen w-full px-4 pt-6 flex flex-col"
       style={{
-        backgroundImage:
-          "linear-gradient(to bottom, #A7DBF5 0%, #A7DBF5 90%, #FFB6C1 100%)",
+        backgroundImage: "linear-gradient(to bottom, #A7DBF5 0%, #A7DBF5 90%, #FFB6C1 100%)",
       }}
     >
       <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col space-y-4 pb-40">

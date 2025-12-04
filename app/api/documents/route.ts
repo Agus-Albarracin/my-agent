@@ -82,13 +82,12 @@ export const POST = async (request: Request) => {
     // ============================================================
     // ⚡ 4. Ejecutar Upload + RAG en paralelo
     // ============================================================
-    const [vectorStoreId, summary] = await Promise.all([
-      uploadFileToVectorStore(userId, tempPath),
-      ragQuery(
-        userId,
-        `Resumí el nuevo documento "${title}" en 10 puntos clave.`
-      ),
-    ]);
+    await uploadFileToVectorStore(userId, tempPath);
+    
+    const summary = await ragQuery(
+      userId,
+      `Resumí el nuevo documento "${title}" en 10 puntos clave.`
+    );
 
     // ============================================================
     // 🗄 5. Guardar documento

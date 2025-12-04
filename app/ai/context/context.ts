@@ -1,7 +1,7 @@
 import { prisma } from "@/prisma/prisma-client";
 
 export async function buildDynamicContext(user: any) {
- if (!user) return "";
+  if (!user) return "";
 
   // Buscar en paralelo (rápido)
   const [messages, memories] = await Promise.all([
@@ -21,9 +21,7 @@ export async function buildDynamicContext(user: any) {
   ]);
 
   const memoryText =
-    memories.length > 0
-      ? memories.map((m) => `${m.key}: ${m.value}`).join(" | ")
-      : "";
+    memories.length > 0 ? memories.map((m) => `${m.key}: ${m.value}`).join(" | ") : "";
 
   const historyText = messages
     .slice()
