@@ -25,7 +25,6 @@ export default function ChatInput({ onSend, disabled, onNewChat }: ChatInputProp
     setFiles([]);
 
     if (fileInputRef.current) fileInputRef.current.value = "";
-
     setTimeout(() => inputRef.current?.focus(), 10);
   };
 
@@ -47,9 +46,9 @@ export default function ChatInput({ onSend, disabled, onNewChat }: ChatInputProp
             <Badge
               key={file.name}
               variant="secondary"
-              className="flex items-center gap-2 bg-white/60 border text-black"
+              className="flex items-center gap-2 bg-white/60 border text-black max-w-full truncate"
             >
-              {file.name}
+              <span className="truncate">{file.name}</span>
               <button onClick={() => removeFile(file.name)}>
                 <X className="w-4 h-4 hover:text-red-600" />
               </button>
@@ -58,7 +57,7 @@ export default function ChatInput({ onSend, disabled, onNewChat }: ChatInputProp
         </div>
       )}
 
-      <div className="bg-white/70 rounded-3xl px-5 py-4 flex items-center gap-4">
+      <div className="bg-white/70 rounded-3xl px-4 py-3 flex items-center gap-3 w-full">
         <button onClick={onNewChat}>
           <Plus className="w-5 h-5 text-slate-700" />
         </button>
@@ -70,7 +69,7 @@ export default function ChatInput({ onSend, disabled, onNewChat }: ChatInputProp
         <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFiles} />
 
         <input
-          className="flex-1 bg-transparent border-none outline-none"
+          className="flex-1 bg-transparent text-sm sm:text-base border-none outline-none"
           placeholder="Escribe un mensaje..."
           value={value}
           disabled={disabled}
@@ -79,7 +78,9 @@ export default function ChatInput({ onSend, disabled, onNewChat }: ChatInputProp
           ref={inputRef}
         />
 
-        <button onClick={submit}>Enviar</button>
+        <button className="text-slate-700 font-medium text-sm sm:text-base" onClick={submit}>
+          Enviar
+        </button>
       </div>
     </div>
   );
