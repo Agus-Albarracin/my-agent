@@ -42,10 +42,7 @@ export async function POST(req: Request) {
     // 0) Validación mínima de seguridad
     // ------------------------------------------------------------------------
     if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "Falta la variable OPENAI_API_KEY" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Falta la variable OPENAI_API_KEY" }, { status: 500 });
     }
 
     // Input del usuario (texto + archivos procesados antes)
@@ -102,8 +99,7 @@ export async function POST(req: Request) {
     const dynamicContext = await buildDynamicContext(user);
 
     // Mensaje especial si se enviaron archivos
-    const uploadedFilesSystemMessage =
-      buildUploadedFilesSystemMessage(uploadedFiles);
+    const uploadedFilesSystemMessage = buildUploadedFilesSystemMessage(uploadedFiles);
 
     // ------------------------------------------------------------------------
     // 7) PRIMERA LLAMADA — Razonamiento + tool_choice
@@ -113,7 +109,7 @@ export async function POST(req: Request) {
       { role: "system", content: dynamicContext },
     ];
 
-    console.log("message", messages)
+    console.log("message", messages);
 
     if (uploadedFilesSystemMessage) {
       messages.push(uploadedFilesSystemMessage);
