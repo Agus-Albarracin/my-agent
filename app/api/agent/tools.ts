@@ -142,14 +142,17 @@ export const tools: ChatCompletionTool[] = [
   },
   // ===== Lectura de documentos. =====
   {
-    type: "function",
-    function: {
-      name: "summarizeLastDocument",
-      description: "Resume el documento más recientemente subido por el usuario usando RAG.",
-      parameters: {
-        type: "object",
-        properties: {},
+  type: "function",
+  function: {
+    name: "summarizeLastDocument",
+    description: "Analiza el archivo más reciente subido por el usuario.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" }
       },
+      required: ["query"]
     },
   },
+},
 ];

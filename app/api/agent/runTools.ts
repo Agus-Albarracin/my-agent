@@ -44,7 +44,7 @@ export async function runTool(name: string, args: any) {
       return searchDocuments(args.id, args.query, args.topK ?? 5);
 
     case "summarizeLastDocument":
-      return summarizeLastDocument(args.userId);
+      return summarizeLastDocument(args.userId, args.query);
 
     default:
       return { error: `Tool no implementada: ${name}` };
