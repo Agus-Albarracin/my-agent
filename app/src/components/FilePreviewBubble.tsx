@@ -17,9 +17,10 @@ export default function FilePreviewBubble({
 }: FilePreviewBubbleProps) {
   return (
     <div
-      className={`flex items-center gap-3 mt-2 px-3 py-2 rounded-xl shadow-sm border 
-      animate-fileIn max-w-[75%]
-      ${isUser ? "bg-sky-100 ml-auto" : "bg-slate-100 mr-auto"}`}
+      className={`flex items-center gap-3 mt-2 px-3 py-2 
+    rounded-xl shadow-sm border animate-fileIn max-w-[85%] sm:max-w-[75%]
+    ${isUser ? "bg-sky-100 ml-auto" : "bg-slate-100 mr-auto"}
+  `}
     >
       <Paperclip className="w-4 h-4 text-slate-600" />
 

@@ -172,25 +172,24 @@ export default function Home() {
 
   return (
     <main
-      className="min-h-screen w-full px-4 pt-6 flex flex-col"
+      className="min-h-screen w-full px-3 sm:px-4 pt-4 sm:pt-6 flex flex-col"
       style={{
         backgroundImage: "linear-gradient(to bottom, #A7DBF5 0%, #A7DBF5 90%, #FFB6C1 100%)",
       }}
     >
-      <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col space-y-4 pb-40">
+      <div className="max-w-2xl mx-auto w-full flex-1 flex flex-col space-y-4 pb-32 sm:pb-40">
         {messages.map((msg, i) => (
           <ChatBubble key={i} role={msg.role} text={msg.content} files={msg.files} />
         ))}
 
         {loading && <ChatBubble role="agent" text="" loading />}
-
         {processingSlow && <ProcessingIndicator />}
-
         <div ref={bottomRef} />
       </div>
 
-      <div className="sticky bottom-6 left-0 right-0 flex justify-center pointer-events-none">
-        <div className="w-full max-w-3xl px-4 pointer-events-auto">
+      {/* Input fijo abajo, completamente responsive */}
+      <div className="sticky bottom-4 sm:bottom-6 left-0 right-0 flex justify-center pointer-events-none">
+        <div className="w-full max-w-3xl px-3 sm:px-4 pointer-events-auto">
           <ChatInput onSend={sendMessage} onNewChat={newChat} disabled={loading} />
         </div>
       </div>
